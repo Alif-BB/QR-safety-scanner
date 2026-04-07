@@ -536,23 +536,43 @@ function scanFrame() {
 function handleUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
+  document.getElementById('upload-area').style.display = 'none';
+
   const reader = new FileReader();
   reader.onload = ev => {
-    const img = document.getElementById('preview-img');
-    img.src = ev.target.result;
-    img.style.display = 'block';
-    document.getElementById('upload-area').style.display = 'none';
+    const img = new Image();
+
     img.onload = () => {
+      // Show preview
+      const preview = document.getElementById('preview-img');
+      preview.src = ev.target.result;
+      preview.style.display = 'block';
+
+      // Scale down large images for faster processing (max 1024px)
+      const MAX = 1024;
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      if (w > MAX || h > MAX) {
+        const ratio = Math.min(MAX / w, MAX / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+
       const canvas = document.getElementById('upload-canvas');
-      canvas.width  = img.naturalWidth;
-      canvas.height = img.naturalHeight;
+      canvas.width  = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(data.data, data.width, data.height, { inversionAttempts: 'attemptBoth' });
+      ctx.drawImage(img, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
       if (code) showResult(code.data);
-      else showError('No QR code found in this image. Try a clearer photo.');
+      else showError('No QR code found. Try a clearer or closer photo of the QR code.');
     };
+
+    img.onerror = () => showError('Could not load image. Try a different file.');
+
+    // Set src AFTER onload is attached
+    img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
 }
