@@ -419,7 +419,7 @@
     </div>
   </div>
 
-  <div id="upload-panel">
+  <div id="upload-panel" style="display:none; padding: 1.5rem;">
     <div class="upload-area" id="upload-area">
       <div class="upload-icon">⬆</div>
       <p>Click to select an image<br><span style="font-size:11px;opacity:0.6;">JPG, PNG, GIF, WebP supported</span></p>
@@ -487,8 +487,8 @@ function switchTab(tab, el) {
   activeTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  document.getElementById('camera-panel').style.display = tab === 'camera' ? '' : 'none';
-  document.getElementById('upload-panel').style.display  = tab === 'upload'  ? '' : 'none';
+  document.getElementById('camera-panel').style.display = tab === 'camera' ? 'block' : 'none';
+  document.getElementById('upload-panel').style.display  = tab === 'upload'  ? 'block' : 'none';
   if (tab === 'camera') startCamera();
   else stopCamera();
 }
