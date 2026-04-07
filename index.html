@@ -474,13 +474,22 @@
   <a href="https://www.virustotal.com/gui/my-apikey" target="_blank">Get VirusTotal key</a>
 </footer>
 
-<script src="jsQR.js"></script>
 <script>
 let currentUrl = '';
 let scanning = false;
 let stream = null;
 let rafId = null;
 let activeTab = 'camera';
+let detector = null;
+
+// Initialise BarcodeDetector (built into Chrome, Edge, Safari 17+)
+async function initDetector() {
+  if ('BarcodeDetector' in window) {
+    detector = new BarcodeDetector({ formats: ['qr_code'] });
+    return true;
+  }
+  return false;
+}
 
 // ── Tab switching ──────────────────────────────────────────
 function switchTab(tab, el) {
@@ -495,6 +504,11 @@ function switchTab(tab, el) {
 
 // ── Camera ─────────────────────────────────────────────────
 async function startCamera() {
+  if (!detector) {
+    document.getElementById('cam-label').textContent = 'BarcodeDetector not supported — use Upload tab';
+    document.getElementById('scan-line').style.display = 'none';
+    return;
+  }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
@@ -517,18 +531,18 @@ function stopCamera() {
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
 }
 
-function scanFrame() {
+async function scanFrame() {
   if (!scanning) return;
   const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
   if (video.readyState === video.HAVE_ENOUGH_DATA) {
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0);
-    const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-    if (code) { scanning = false; showResult(code.data); return; }
+    try {
+      const codes = await detector.detect(video);
+      if (codes.length > 0) {
+        scanning = false;
+        showResult(codes[0].rawValue);
+        return;
+      }
+    } catch(e) {}
   }
   rafId = requestAnimationFrame(scanFrame);
 }
@@ -541,93 +555,49 @@ function setUploadStatus(msg, color) {
   el.style.display = msg ? '' : 'none';
 }
 
-function handleUpload(file) {
+async function handleUpload(file) {
   if (!file) return;
 
-  // Check jsQR loaded
-  if (typeof jsQR === 'undefined') {
-    setUploadStatus('Error: QR library not loaded. Try refreshing the page.', '#ff4d4d');
+  if (!detector) {
+    setUploadStatus('BarcodeDetector is not supported in this browser. Please use Chrome or Edge.', '#ff4d4d');
     return;
   }
 
   setUploadStatus('Reading image...', '#888');
   document.getElementById('upload-area').style.display = 'none';
 
-  const reader = new FileReader();
+  const img = new Image();
+  const url = URL.createObjectURL(file);
 
-  reader.onerror = () => {
-    setUploadStatus('Error reading file. Try a different image.', '#ff4d4d');
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    setUploadStatus('Could not load image. Try a JPG or PNG file.', '#ff4d4d');
     document.getElementById('upload-area').style.display = '';
   };
 
-  reader.onload = ev => {
-    const img = new Image();
+  img.onload = async () => {
+    try {
+      const preview = document.getElementById('preview-img');
+      preview.src = url;
+      preview.style.display = 'block';
 
-    img.onerror = () => {
-      setUploadStatus('Could not load image. Try a JPG or PNG file.', '#ff4d4d');
-      document.getElementById('upload-area').style.display = '';
-    };
+      setUploadStatus('Scanning for QR code...', '#888');
 
-    img.onload = () => {
-      try {
-        // Show preview
-        const preview = document.getElementById('preview-img');
-        preview.src = ev.target.result;
-        preview.style.display = 'block';
+      const codes = await detector.detect(img);
+      URL.revokeObjectURL(url);
 
-        setUploadStatus('Scanning for QR code...', '#888');
-
-        // Scale to max 1200px on longest side
-        const MAX = 1200;
-        let w = img.naturalWidth  || img.width;
-        let h = img.naturalHeight || img.height;
-
-        if (w === 0 || h === 0) {
-          setUploadStatus('Image has no dimensions. Try another file.', '#ff4d4d');
-          return;
-        }
-
-        if (w > MAX || h > MAX) {
-          const ratio = Math.min(MAX / w, MAX / h);
-          w = Math.round(w * ratio);
-          h = Math.round(h * ratio);
-        }
-
-        const canvas = document.getElementById('upload-canvas');
-        canvas.width  = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-
-        let imageData;
-        try {
-          imageData = ctx.getImageData(0, 0, w, h);
-        } catch(secErr) {
-          setUploadStatus('Security error reading image. Try saving the image locally first.', '#ff4d4d');
-          return;
-        }
-
-        const code = jsQR(imageData.data, imageData.width, imageData.height, {
-          inversionAttempts: 'attemptBoth'
-        });
-
-        if (code) {
-          setUploadStatus('', '');
-          showResult(code.data);
-        } else {
-          setUploadStatus('No QR code detected. Make sure the QR code is clearly visible and not blurry.', '#f5a623');
-        }
-
-      } catch(err) {
-        setUploadStatus('Unexpected error: ' + err.message, '#ff4d4d');
+      if (codes.length > 0) {
+        setUploadStatus('', '');
+        showResult(codes[0].rawValue);
+      } else {
+        setUploadStatus('No QR code detected. Make sure the QR code is clearly visible and not blurry.', '#f5a623');
       }
-    };
-
-    // IMPORTANT: set src after onload is attached
-    img.src = ev.target.result;
+    } catch(err) {
+      setUploadStatus('Error scanning image: ' + err.message, '#ff4d4d');
+    }
   };
 
-  reader.readAsDataURL(file);
+  img.src = url;
 }
 
 // ── Heuristic analysis ─────────────────────────────────────
@@ -888,8 +858,15 @@ document.getElementById('file-input').addEventListener('change', e => {
   e.target.value = '';
 });
 
-// Auto-start camera
-startCamera();
+// Auto-start
+initDetector().then(supported => {
+  if (!supported) {
+    document.getElementById('cam-label').textContent = 'Use Chrome or Edge for camera scanning';
+    document.getElementById('scan-line').style.display = 'none';
+  } else {
+    startCamera();
+  }
+});
 </script>
 </body>
 </html>
