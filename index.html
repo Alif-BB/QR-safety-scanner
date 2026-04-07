@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Safety Scanner</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --surface: #161616;
+      --surface2: #1e1e1e;
+      --border: rgba(255,255,255,0.08);
+      --border2: rgba(255,255,255,0.14);
+      --text: #f0f0f0;
+      --muted: #888;
+      --accent: #00e5a0;
+      --accent-dim: rgba(0,229,160,0.12);
+      --warn: #f5a623;
+      --warn-dim: rgba(245,166,35,0.12);
+      --danger: #ff4d4d;
+      --danger-dim: rgba(255,77,77,0.12);
+      --safe: #00e5a0;
+      --safe-dim: rgba(0,229,160,0.1);
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 4rem;
+    }
+
+    header {
+      width: 100%;
+      max-width: 620px;
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    header span {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      width: 100%;
+      max-width: 620px;
+      margin-bottom: 1rem;
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px;
+      font-size: 12px;
+      font-family: inherit;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .tab.active {
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .tab:hover:not(.active) { color: var(--text); }
+
+    /* Scanner */
+    #camera-panel { position: relative; }
+
+    #video-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      background: #000;
+      overflow: hidden;
+    }
+
+    #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #canvas { display: none; }
+
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+
+    .reticle {
+      width: 55%; aspect-ratio: 1;
+      position: relative;
+    }
+
+    .reticle::before, .reticle::after,
+    .reticle span::before, .reticle span::after {
+      content: '';
+      position: absolute;
+      width: 20px; height: 20px;
+      border-color: var(--accent);
+      border-style: solid;
+      opacity: 0.8;
+    }
+
+    .reticle::before  { top: 0; left: 0;    border-width: 2px 0 0 2px; }
+    .reticle::after   { top: 0; right: 0;   border-width: 2px 2px 0 0; }
+    .reticle span::before { bottom: 0; left: 0;  border-width: 0 0 2px 2px; }
+    .reticle span::after  { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+    .scan-line {
+      position: absolute;
+      left: 22%; right: 22%;
+      height: 1px;
+      background: var(--accent);
+      opacity: 0.5;
+      box-shadow: 0 0 6px var(--accent);
+      top: 22%;
+      animation: scan 2.2s ease-in-out infinite;
+    }
+
+    @keyframes scan { 0%,100%{top:22%} 50%{top:73%} }
+
+    .cam-label {
+      position: absolute;
+      bottom: 12px; left: 0; right: 0;
+      text-align: center;
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 0.06em;
+    }
+
+    /* Upload */
+    #upload-panel { display: none; }
+
+    .upload-area {
+      padding: 3rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      border: 1.5px dashed var(--border2);
+      margin: 1.5rem;
+      border-radius: var(--radius);
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .upload-area:hover { background: var(--surface2); border-color: var(--accent); }
+
+    .upload-area p { font-size: 13px; color: var(--muted); line-height: 1.8; }
+
+    .upload-area .upload-icon {
+      font-size: 28px;
+      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+
+    #file-input { display: none; }
+
+    #preview-img {
+      display: none;
+      max-width: 100%;
+      max-height: 340px;
+      object-fit: contain;
+      margin: 0 auto;
+    }
+
+    #upload-canvas { display: none; }
+
+    /* Result */
+    #result-card { display: none; }
+
+    .result-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .result-banner.safe   { background: var(--safe-dim); }
+    .result-banner.warn   { background: var(--warn-dim); }
+    .result-banner.danger { background: var(--danger-dim); }
+    .result-banner.info   { background: var(--surface2); }
+
+    .verdict-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%; flex-shrink: 0;
+    }
+
+    .safe-color   { background: var(--safe); }
+    .warn-color   { background: var(--warn); }
+    .danger-color { background: var(--danger); }
+    .info-color   { background: var(--muted); }
+
+    .verdict-text { font-size: 13px; font-weight: 500; letter-spacing: 0.04em; }
+
+    .url-bar {
+      padding: 10px 18px;
+      font-size: 11px;
+      color: var(--muted);
+      word-break: break-all;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      line-height: 1.6;
+    }
+
+    .checks-grid {
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .ci {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .ci-ok   { background: rgba(0,229,160,0.15); color: var(--safe); }
+    .ci-warn { background: rgba(245,166,35,0.15); color: var(--warn); }
+    .ci-bad  { background: rgba(255,77,77,0.15);  color: var(--danger); }
+    .ci-na   { background: rgba(255,255,255,0.06); color: var(--muted); }
+
+    .check-name { color: var(--muted); flex: 1; }
+    .check-value { color: var(--text); }
+
+    /* API sections */
+    .api-section {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .api-section:last-of-type { border-bottom: none; }
+
+    .api-title {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .api-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .api-row input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      color: var(--text);
+      outline: none;
+    }
+
+    .api-row input:focus { border-color: var(--accent); }
+    .api-row input::placeholder { color: var(--muted); }
+
+    .api-row button {
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-sm);
+      padding: 8px 14px;
+      font-size: 12px;
+      font-family: inherit;
+      color: var(--text);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .api-row button:hover { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+
+    .api-result {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 16px;
+      line-height: 1.5;
+    }
+
+    .api-result.ok     { color: var(--safe); }
+    .api-result.bad    { color: var(--danger); }
+    .api-result.warn   { color: var(--warn); }
+
+    .open-row {
+      padding: 12px 18px;
+      display: flex;
+      gap: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .open-btn {
+      flex: 1;
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-sm);
+      padding: 9px;
+      font-size: 12px;
+      font-family: inherit;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .open-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    .copy-btn {
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-sm);
+      padding: 9px 14px;
+      font-size: 12px;
+      font-family: inherit;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .copy-btn:hover { border-color: var(--border2); color: var(--text); background: var(--surface2); }
+
+    /* Scan again */
+    .scan-again-btn {
+      width: 100%;
+      max-width: 620px;
+      padding: 11px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-family: inherit;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .scan-again-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Footer */
+    footer {
+      margin-top: 3rem;
+      font-size: 11px;
+      color: rgba(255,255,255,0.2);
+      text-align: center;
+      line-height: 2;
+    }
+
+    footer a { color: rgba(255,255,255,0.3); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>QR Safety Scanner</h1>
+  <span>v1.0</span>
+</header>
+
+<div class="card">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('camera', this)">Camera</button>
+    <button class="tab" onclick="switchTab('upload', this)">Upload image</button>
+  </div>
+
+  <div id="camera-panel">
+    <div id="video-wrap">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="overlay">
+        <div class="reticle"><span></span></div>
+      </div>
+      <div class="scan-line" id="scan-line"></div>
+      <div class="cam-label" id="cam-label">Starting camera...</div>
+    </div>
+  </div>
+
+  <div id="upload-panel">
+    <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+      <div class="upload-icon">⬆</div>
+      <p>Click to select an image<br><span style="font-size:11px;opacity:0.6;">JPG, PNG, GIF, WebP supported</span></p>
+    </div>
+    <input type="file" id="file-input" accept="image/*" onchange="handleUpload(event)">
+    <img id="preview-img" alt="Uploaded QR">
+    <canvas id="upload-canvas"></canvas>
+  </div>
+</div>
+
+<div class="card" id="result-card">
+  <div class="result-banner" id="result-banner">
+    <div class="verdict-dot" id="verdict-dot"></div>
+    <span class="verdict-text" id="verdict-text"></span>
+  </div>
+  <div class="url-bar" id="url-bar"></div>
+  <div class="checks-grid" id="checks-grid"></div>
+
+  <!-- Google Safe Browsing -->
+  <div class="api-section">
+    <p class="api-title">Google Safe Browsing</p>
+    <div class="api-row">
+      <input type="password" id="gsb-key" placeholder="Google API key (free at console.cloud.google.com)">
+      <button onclick="runGSB()">Check</button>
+    </div>
+    <p class="api-result" id="gsb-result"></p>
+  </div>
+
+  <!-- VirusTotal -->
+  <div class="api-section">
+    <p class="api-title">VirusTotal</p>
+    <div class="api-row">
+      <input type="password" id="vt-key" placeholder="VirusTotal API key (free at virustotal.com)">
+      <button onclick="runVT()">Check</button>
+    </div>
+    <p class="api-result" id="vt-result"></p>
+  </div>
+
+  <div class="open-row" id="open-row" style="display:none;">
+    <button class="open-btn" onclick="openUrl()">Open URL →</button>
+    <button class="copy-btn" onclick="copyUrl()">Copy</button>
+  </div>
+</div>
+
+<button class="scan-again-btn" id="scan-again-btn" onclick="scanAgain()" style="display:none;">Scan another QR code</button>
+
+<footer>
+  API keys are used locally in your browser only — never sent anywhere except the respective APIs.<br>
+  <a href="https://developers.google.com/safe-browsing/v4/get-started" target="_blank">Get Google Safe Browsing key</a>
+  &nbsp;·&nbsp;
+  <a href="https://www.virustotal.com/gui/my-apikey" target="_blank">Get VirusTotal key</a>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script>
+let currentUrl = '';
+let scanning = false;
+let stream = null;
+let rafId = null;
+let activeTab = 'camera';
+
+// ── Tab switching ──────────────────────────────────────────
+function switchTab(tab, el) {
+  activeTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('camera-panel').style.display = tab === 'camera' ? '' : 'none';
+  document.getElementById('upload-panel').style.display  = tab === 'upload'  ? '' : 'none';
+  if (tab === 'camera') startCamera();
+  else stopCamera();
+}
+
+// ── Camera ─────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    await video.play();
+    scanning = true;
+    document.getElementById('cam-label').textContent = 'Point at a QR code';
+    scanFrame();
+  } catch (e) {
+    document.getElementById('cam-label').textContent = 'Camera unavailable — use Upload tab';
+    document.getElementById('scan-line').style.display = 'none';
+  }
+}
+
+function stopCamera() {
+  scanning = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+}
+
+function scanFrame() {
+  if (!scanning) return;
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+    const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    if (code) { scanning = false; showResult(code.data); return; }
+  }
+  rafId = requestAnimationFrame(scanFrame);
+}
+
+// ── Upload ─────────────────────────────────────────────────
+function handleUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = document.getElementById('preview-img');
+    img.src = ev.target.result;
+    img.style.display = 'block';
+    document.getElementById('upload-area').style.display = 'none';
+    img.onload = () => {
+      const canvas = document.getElementById('upload-canvas');
+      canvas.width  = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(data.data, data.width, data.height, { inversionAttempts: 'attemptBoth' });
+      if (code) showResult(code.data);
+      else showError('No QR code found in this image. Try a clearer photo.');
+    };
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Heuristic analysis ─────────────────────────────────────
+function analyze(url) {
+  const checks = [];
+  let score = 0;
+
+  const isUrl = /^https?:\/\//i.test(url);
+  checks.push({ name: 'Content type', value: isUrl ? 'URL' : 'Plain text / data', status: isUrl ? 'ok' : 'na' });
+  if (!isUrl) return { checks, score: 0, verdict: 'info' };
+
+  let hostname = '', pathname = '';
+  try { const u = new URL(url); hostname = u.hostname.toLowerCase(); pathname = u.pathname; } catch(e) {}
+
+  const isHttps = url.startsWith('https://');
+  checks.push({ name: 'HTTPS encryption', value: isHttps ? 'Yes' : 'No — unencrypted', status: isHttps ? 'ok' : 'warn' });
+  if (!isHttps) score++;
+
+  const shortened = /^(bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|short\.io|rb\.gy|tiny\.cc|is\.gd|v\.gd|cutt\.ly|buff\.ly|bl\.ink)$/i.test(hostname);
+  checks.push({ name: 'Shortened URL', value: shortened ? 'Yes — hides real destination' : 'No', status: shortened ? 'warn' : 'ok' });
+  if (shortened) score++;
+
+  const ipHost = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+  checks.push({ name: 'IP address host', value: ipHost ? 'Yes — suspicious' : 'No', status: ipHost ? 'bad' : 'ok' });
+  if (ipHost) score += 2;
+
+  const lookalike = /(paypa[l1]|g[o0]{2}gle|arnazon|amaz[o0]n|micros[o0]ft|faceb[o0]{2}k|app[l1]e|[il1]nstagram|tw[i1]tter|netfl[i1]x)/i.test(hostname);
+  checks.push({ name: 'Typosquat / lookalike', value: lookalike ? 'Suspicious pattern detected' : 'None detected', status: lookalike ? 'bad' : 'ok' });
+  if (lookalike) score += 3;
+
+  const suspTLD = /\.(xyz|top|tk|ml|ga|cf|gq|cc|pw|club|work|loan|win|download|click|country|stream|vip|icu|cyou|bond|rest|hair|beauty|quest)$/i.test(hostname);
+  const tld = hostname.split('.').slice(-2).join('.');
+  checks.push({ name: 'TLD risk level', value: suspTLD ? tld + ' (high-risk TLD)' : tld, status: suspTLD ? 'warn' : 'ok' });
+  if (suspTLD) score++;
+
+  const parts = hostname.split('.');
+  const subCount = parts.length - 2;
+  checks.push({ name: 'Subdomain depth', value: subCount <= 0 ? 'None' : subCount + (subCount > 3 ? ' (excessive)' : ''), status: subCount > 3 ? 'warn' : 'ok' });
+  if (subCount > 3) score++;
+
+  const suspKeywords = /(login|verify|account|secure|update|banking|confirm|password|signin|wallet|crypto|prize|claim|winner|free|bonus|limited|urgent|suspended|locked)/i.test(url);
+  checks.push({ name: 'Phishing keywords', value: suspKeywords ? 'Found in URL' : 'None found', status: suspKeywords ? 'warn' : 'ok' });
+  if (suspKeywords) score++;
+
+  const encoded = (url.match(/%[0-9a-f]{2}/gi) || []).length;
+  checks.push({ name: 'URL encoding', value: encoded > 5 ? encoded + ' encoded chars (suspicious)' : encoded > 0 ? encoded + ' encoded chars' : 'None', status: encoded > 5 ? 'warn' : 'ok' });
+  if (encoded > 5) score++;
+
+  checks.push({ name: 'URL length', value: url.length + ' characters' + (url.length > 200 ? ' (very long)' : ''), status: url.length > 200 ? 'warn' : 'ok' });
+  if (url.length > 200) score++;
+
+  const verdict = score === 0 ? 'safe' : score <= 2 ? 'warn' : 'danger';
+  return { checks, score, verdict };
+}
+
+// ── Display result ─────────────────────────────────────────
+function showResult(data) {
+  currentUrl = data;
+  const { checks, verdict } = analyze(data);
+
+  const card   = document.getElementById('result-card');
+  const banner = document.getElementById('result-banner');
+  const dot    = document.getElementById('verdict-dot');
+  const text   = document.getElementById('verdict-text');
+
+  card.style.display = '';
+  banner.className = 'result-banner ' + verdict;
+  dot.className = 'verdict-dot ' + verdict + '-color';
+
+  const labels = {
+    safe: 'Looks safe — no suspicious signals detected',
+    warn: 'Caution — review the URL before opening',
+    danger: 'High risk — do not open this link',
+    info: 'QR code decoded — contains non-URL data'
+  };
+  text.textContent = labels[verdict] || '';
+  document.getElementById('url-bar').textContent = data;
+
+  const grid = document.getElementById('checks-grid');
+  grid.innerHTML = checks.map(c => {
+    const cls = { ok: 'ci-ok', warn: 'ci-warn', bad: 'ci-bad', na: 'ci-na' }[c.status] || 'ci-na';
+    const sym = { ok: '✓', warn: '!', bad: '✕', na: '—' }[c.status] || '—';
+    return `<div class="check-row">
+      <div class="ci ${cls}">${sym}</div>
+      <span class="check-name">${c.name}</span>
+      <span class="check-value">${c.value}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('gsb-result').textContent = '';
+  document.getElementById('vt-result').textContent  = '';
+  document.getElementById('gsb-result').className   = 'api-result';
+  document.getElementById('vt-result').className    = 'api-result';
+
+  const isUrl = /^https?:\/\//i.test(data);
+  document.getElementById('open-row').style.display = isUrl ? '' : 'none';
+  document.getElementById('scan-again-btn').style.display = '';
+  stopCamera();
+}
+
+function showError(msg) {
+  currentUrl = '';
+  const card = document.getElementById('result-card');
+  card.style.display = '';
+  const banner = document.getElementById('result-banner');
+  banner.className = 'result-banner info';
+  document.getElementById('verdict-dot').className = 'verdict-dot info-color';
+  document.getElementById('verdict-text').textContent = msg;
+  document.getElementById('url-bar').textContent = '';
+  document.getElementById('checks-grid').innerHTML = '';
+  document.getElementById('open-row').style.display = 'none';
+  document.getElementById('scan-again-btn').style.display = '';
+}
+
+// ── Google Safe Browsing ───────────────────────────────────
+async function runGSB() {
+  const key = document.getElementById('gsb-key').value.trim();
+  const el  = document.getElementById('gsb-result');
+  if (!key)        { el.className = 'api-result'; el.textContent = 'Enter a Google API key first.'; return; }
+  if (!currentUrl) { el.textContent = 'No URL to check.'; return; }
+
+  el.className = 'api-result';
+  el.textContent = 'Checking with Google Safe Browsing...';
+
+  const body = {
+    client: { clientId: 'qr-safety-scanner', clientVersion: '1.0' },
+    threatInfo: {
+      threatTypes: ['MALWARE','SOCIAL_ENGINEERING','UNWANTED_SOFTWARE','POTENTIALLY_HARMFUL_APPLICATION','THREAT_TYPE_UNSPECIFIED'],
+      platformTypes: ['ANY_PLATFORM'],
+      threatEntryTypes: ['URL'],
+      threatEntries: [{ url: currentUrl }]
+    }
+  };
+
+  try {
+    const res  = await fetch(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      el.className = 'api-result warn';
+      el.textContent = 'API error: ' + (json.error?.message || res.status);
+      return;
+    }
+    if (json.matches && json.matches.length > 0) {
+      const types = [...new Set(json.matches.map(m => m.threatType.replace(/_/g,' ').toLowerCase()))].join(', ');
+      el.className = 'api-result bad';
+      el.textContent = 'UNSAFE — Google flagged this URL: ' + types;
+    } else {
+      el.className = 'api-result ok';
+      el.textContent = 'Clean — not found in Google Safe Browsing database';
+    }
+  } catch (e) {
+    el.className = 'api-result warn';
+    el.textContent = 'Request failed. Check your API key or network.';
+  }
+}
+
+// ── VirusTotal ─────────────────────────────────────────────
+async function runVT() {
+  const key = document.getElementById('vt-key').value.trim();
+  const el  = document.getElementById('vt-result');
+  if (!key)        { el.className = 'api-result'; el.textContent = 'Enter a VirusTotal API key first.'; return; }
+  if (!currentUrl) { el.textContent = 'No URL to check.'; return; }
+
+  el.className = 'api-result';
+  el.textContent = 'Submitting to VirusTotal...';
+
+  try {
+    // Step 1: submit URL for analysis
+    const submitRes = await fetch('https://www.virustotal.com/api/v3/urls', {
+      method: 'POST',
+      headers: { 'x-apikey': key, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'url=' + encodeURIComponent(currentUrl)
+    });
+    const submitJson = await submitRes.json();
+
+    if (!submitRes.ok) {
+      el.className = 'api-result warn';
+      el.textContent = 'API error: ' + (submitJson.error?.message || submitRes.status);
+      return;
+    }
+
+    // Step 2: fetch analysis result using URL id
+    const urlId = submitJson.data?.id?.replace('u-','').split('-')[0]
+      || btoa(currentUrl).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
+
+    el.textContent = 'Fetching analysis results...';
+
+    await new Promise(r => setTimeout(r, 1500));
+
+    const getRes  = await fetch(`https://www.virustotal.com/api/v3/urls/${urlId}`, {
+      headers: { 'x-apikey': key }
+    });
+    const getJson = await getRes.json();
+    const stats   = getJson.data?.attributes?.last_analysis_stats;
+
+    if (stats) {
+      const flagged = (stats.malicious || 0) + (stats.suspicious || 0);
+      const total   = Object.values(stats).reduce((a, b) => a + b, 0);
+      if (flagged > 0) {
+        el.className = 'api-result bad';
+        el.textContent = `FLAGGED — ${flagged} of ${total} engines detected threats`;
+      } else {
+        el.className = 'api-result ok';
+        el.textContent = `Clean — 0 of ${total} engines flagged this URL`;
+      }
+    } else {
+      el.className = 'api-result warn';
+      el.textContent = getJson.error?.message || 'No result yet — URL may still be queued for analysis';
+    }
+  } catch (e) {
+    el.className = 'api-result warn';
+    el.textContent = 'Request failed. Check your API key or network.';
+  }
+}
+
+// ── Utilities ──────────────────────────────────────────────
+function openUrl() {
+  if (currentUrl) window.open(currentUrl, '_blank', 'noopener,noreferrer');
+}
+
+function copyUrl() {
+  if (!currentUrl) return;
+  navigator.clipboard.writeText(currentUrl).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+
+function scanAgain() {
+  currentUrl = '';
+  document.getElementById('result-card').style.display = 'none';
+  document.getElementById('scan-again-btn').style.display = 'none';
+  if (activeTab === 'camera') {
+    scanning = true;
+    startCamera();
+  } else {
+    document.getElementById('preview-img').style.display = 'none';
+    document.getElementById('upload-area').style.display = '';
+    document.getElementById('file-input').value = '';
+  }
+}
+
+// Auto-start camera
+startCamera();
+</script>
+</body>
+</html>
