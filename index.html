@@ -513,42 +513,31 @@
     setStatus('Reading image...', '#888');
     document.getElementById('upload-area').style.display = 'none';
 
+    // Show preview
     const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
+    const preview = document.getElementById('preview-img');
+    preview.src = objectUrl;
+    preview.style.display = 'block';
 
-    img.onerror = () => {
+    setStatus('Scanning for QR code...', '#888');
+
+    try {
+      // createImageBitmap is the most reliable input for BarcodeDetector
+      const bitmap = await createImageBitmap(file);
+      const codes  = await detector.detect(bitmap);
+      bitmap.close();
       URL.revokeObjectURL(objectUrl);
-      setStatus('Could not load image. Try a JPG or PNG file.', '#ff4d4d');
-      document.getElementById('upload-area').style.display = '';
-    };
 
-    img.onload = async () => {
-      document.getElementById('preview-img').src = objectUrl;
-      document.getElementById('preview-img').style.display = 'block';
-      setStatus('Scanning for QR code...', '#888');
-      try {
-        // Draw to canvas first — more reliable than scanning img element directly
-        const canvas = document.createElement('canvas');
-        canvas.width  = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-
-        const codes = await detector.detect(canvas);
-        URL.revokeObjectURL(objectUrl);
-
-        if (codes.length > 0) {
-          setStatus('', '');
-          showResult(codes[0].rawValue);
-        } else {
-          setStatus('No QR code found. Make sure the QR code fills most of the image and is not blurry.', '#f5a623');
-        }
-      } catch(err) {
-        setStatus('Scan error: ' + err.message, '#ff4d4d');
+      if (codes.length > 0) {
+        setStatus('', '');
+        showResult(codes[0].rawValue);
+      } else {
+        setStatus('No QR code found. Try a clearer or closer image.', '#f5a623');
       }
-    };
-
-    img.src = objectUrl;
+    } catch(err) {
+      URL.revokeObjectURL(objectUrl);
+      setStatus('Scan error: ' + err.message, '#ff4d4d');
+    }
   }
 
   function analyze(url) {
