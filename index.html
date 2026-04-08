@@ -527,13 +527,21 @@
       document.getElementById('preview-img').style.display = 'block';
       setStatus('Scanning for QR code...', '#888');
       try {
-        const codes = await detector.detect(img);
+        // Draw to canvas first — more reliable than scanning img element directly
+        const canvas = document.createElement('canvas');
+        canvas.width  = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const codes = await detector.detect(canvas);
         URL.revokeObjectURL(objectUrl);
+
         if (codes.length > 0) {
           setStatus('', '');
           showResult(codes[0].rawValue);
         } else {
-          setStatus('No QR code found. Make sure it is clear and not blurry.', '#f5a623');
+          setStatus('No QR code found. Make sure the QR code fills most of the image and is not blurry.', '#f5a623');
         }
       } catch(err) {
         setStatus('Scan error: ' + err.message, '#ff4d4d');
